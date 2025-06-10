@@ -13,6 +13,7 @@ type Task = {
   id: number;
   title: string;
   description: string;
+  image_url: string;
   created_at: string;
 };
 
@@ -28,6 +29,7 @@ const TaskManager = ({ session }: { session: Session }) => {
     descMessageErr: "",
   });
   const [loading, setLoading] = useState(false);
+  const [taskImage, setTaskImage] = useState<File | null>(null);
 
   // handle change
   const handleChange = ({ target: { name, value } }: Target) => {
@@ -52,65 +54,17 @@ const TaskManager = ({ session }: { session: Session }) => {
     setTaskList(data);
   };
 
-  useEffect(() => {
-    fetchTasks();
-  }, [loading]);
-
-  // submit form
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-
-    if (newTask.title.length < 5) {
-      return setError((prev) => {
-        return {
-          ...prev,
-          titleMessageErr: "Title Minimal 5 karakter",
-        };
-      });
-    }
-    if (newTask.title.length >= 5) {
-      setError((prev) => {
-        return {
-          ...prev,
-          titleMessageErr: "",
-        };
-      });
-    }
-
-    if (newTask.description.length < 5) {
-      return setError((prev) => {
-        return {
-          ...prev,
-          descMessageErr: "Description Minimal 5 karakter",
-        };
-      });
-    }
-    if (newTask.description.length >= 5) {
-      setError((prev) => {
-        return {
-          ...prev,
-          descMessageErr: "",
-        };
-      });
-    }
-
-    try {
-      const { error } = await supabase
-        .from("tasks")
-        .insert({ ...newTask, email: session.user.email })
-        .select()
-        .single();
-
-      if (error) {
-        console.error("Error adding task: ", error.message);
-      }
-
-      setNewTask({ title: "", description: "" });
-    } catch (error) {
-      console.error(error);
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setTaskImage(file);
+      console.log("Selected file:", file);
     }
   };
 
+  useEffect(() => {
+    fetchTasks();
+  }, [loading]);
   useEffect(() => {
     const channel = supabase.channel("tasks-channel");
     channel
@@ -170,6 +124,87 @@ const TaskManager = ({ session }: { session: Session }) => {
       setLoading(false);
     }
   };
+
+  const uploadImage = async (file: File): Promise<string | null> => {
+    const filePath = `${file.name}-${Date.now()}`;
+
+    const { error } = await supabase.storage
+      .from("tasks-images")
+      .upload(filePath, file);
+
+    if (error) {
+      console.error("Error uploading image:", error.message);
+      return null;
+    }
+
+    const { data } = await supabase.storage
+      .from("tasks-images")
+      .getPublicUrl(filePath);
+
+    return data.publicUrl;
+  };
+
+  // submit form
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    let imageUrl: string | null = null;
+
+    if (taskImage) {
+      imageUrl = await uploadImage(taskImage);
+    }
+
+    if (newTask.title.length < 5) {
+      return setError((prev) => {
+        return {
+          ...prev,
+          titleMessageErr: "Title Minimal 5 karakter",
+        };
+      });
+    }
+    if (newTask.title.length >= 5) {
+      setError((prev) => {
+        return {
+          ...prev,
+          titleMessageErr: "",
+        };
+      });
+    }
+
+    if (newTask.description.length < 5) {
+      return setError((prev) => {
+        return {
+          ...prev,
+          descMessageErr: "Description Minimal 5 karakter",
+        };
+      });
+    }
+    if (newTask.description.length >= 5) {
+      setError((prev) => {
+        return {
+          ...prev,
+          descMessageErr: "",
+        };
+      });
+    }
+
+    try {
+      const { error } = await supabase
+        .from("tasks")
+        .insert({ ...newTask, email: session.user.email, image_url: imageUrl })
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Error adding task: ", error.message);
+      }
+
+      setNewTask({ title: "", description: "" });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   return (
     <>
       <h2>Task Manager Crud</h2>
@@ -200,6 +235,9 @@ const TaskManager = ({ session }: { session: Session }) => {
             {error.descMessageErr}
           </p>
         )}
+
+        <input type="file" accept="image/*" onChange={handleFileChange} />
+
         <button type="submit" style={{ padding: "0.5rem 1rem" }}>
           Add Task
         </button>
@@ -219,6 +257,11 @@ const TaskManager = ({ session }: { session: Session }) => {
             <div>
               <h3>{item.title}</h3>
               <p>{item.description}</p>
+              <img
+                src={item.image_url}
+                alt={`${item.image_url}-${item.title}`}
+                style={{ height: "150px" }}
+              />
               <div
                 style={{
                   display: "flex",
